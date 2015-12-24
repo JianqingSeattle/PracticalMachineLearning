@@ -1,0 +1,143 @@
+# Project for Practical Machine Learning
+12/2015
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand and Fitbit, it is now possible to collect a large amount of data about personal activities. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or simply because they are tech geeks. It is common for people to quantify how much of a particular activity they do. However, it is not common for them to quantify how well they do it. 
+
+This project invovles predicting the activities that people do using data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants, who were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website: http://groupware.les.inf.puc-rio.br/har.
+
+## Loading the data
+
+The data was downloaded from the course website. It consists of two files, training set, which is used to build the predicting model, and testing set, which is to be tested on.
+
+The dimension of the training data which is used to build the model is $19622 \times 160$, which means that it has 160 variables and 19622 measurements.
+```{r, cache = TRUE}
+# Load the library
+library(caret)
+# Set working directory
+setwd("D:\\Online\\DataScienceSpecialization\\PracticalMachineLearning\\Project\\temp")
+# Load the training set
+data <- read.csv('pml-training.csv', na.strings = c("NA", "#DIV/0!", ""))
+dim(data)
+```
+
+A quick inspection reveals that the data has a large portion of missing values (NA). Therefore, we need to preprocess and clean the data before doing the machine learning study.
+```{r, cache = TRUE, results = "hide"}
+# inspect data
+names(data)
+head(data)
+summary(data)
+```
+
+## Preprocessing the data 
+
+Data preprocessing in this project includes three steps - removing the non-meaningful variables in predicting, removing the variables with nearly zero variance, and removing the variables which have lots of missing values.
+
+**Removing the non-meaningful variables**
+
+There are 160 variables in total in the raw data. Some of them, such as "X", "user_name" and "raw_timestamp_part_1", do not make sense in building the machine learning model, and need to be removed.  
+```{r, cache = TRUE}
+# Removing non-meaningful variables
+data <- data[, -(1 : 5)]
+```
+
+**Removing the variables with nearly zero variance**
+
+The next step is to removing the variables with nearly zero variance. The number of the variables now reduces to 119.
+```{r, cache = TRUE}
+# Removing variables with nearly zero variance
+nzv <- nearZeroVar(data)
+data <- data[, -nzv]
+dim(data)
+```
+
+**Removing the variables which have lots of missing values**
+
+Variables which have lots of missing values make it difficult to build the model and predict on new data. We need to remove them. The criteria I use is that a variable with more than 90% missing values should be removed. The number of the variables now reduces to 54.
+```{r, cache = TRUE}
+# Removing variables which have lots of missing values
+removeNA <- sapply(data, function(x) mean(is.na(x))) > 0.9
+data <- data[, removeNA == F]
+dim(data)
+```
+
+## Building the model
+
+We are now ready to build the model. First, I split the data into training and validation sets. Validation set is used to compute the out of sample error. 75% data goes to the training set, while the rest goes to validation set.
+```{r, cache = TRUE}
+inTrain <- createDataPartition(y = data$classe, p = 0.75, list = F)
+training <- data[inTrain, ]
+validation <- data[-inTrain, ]
+```
+
+Two predicting methods are tried, decision trees and random forests. These methods are then compared by the predicting accuracies.
+
+### Predicting with trees
+
+The first model I use it the decision trees model. I build the model, test the model on the validation set, and then calculate the confusion matrix.
+```{r, cache = TRUE}
+# Build the decision tree model
+model_tree <- train(classe ~ ., method = "rpart", data = training)
+# Predict on the validation set
+predict_tree <- predict(model_tree, newdata = validation)
+# Compute the confusion matrix
+confusionMatrix(validation$classe, predict_tree)
+```
+The accuracy with decision trees is only 0.4986, which is really bad. Thus, I switch to a more accurate method, random forests.
+
+### Predicting with random forests
+
+Random forests method in R has a built in cross-validation component. In this project, I use 5-fold cross-validation to select the optimized parameters for the model. Again, I build the model, test the model on the validation set, and then calculate the confusion matrix.
+```{r, cache = TRUE}
+# Predicting with random forests
+# use 5-fold cross-validation
+control_forests <- trainControl(method = "cv", number = 5, verboseIter = F)
+# Build the random forests model
+model_forests <- train(classe ~ ., data = training, method = "rf", trControl = control_forests)
+# Predict on the validation set
+predict_forests <- predict(model_forests, newdata = validation)
+# Compute the confusion matrix
+confusionMatrix(validation$classe, predict_forests)
+```
+
+The accuracy for the random forests model is 0.9978, which is much better than the result with the decision trees model. Therefore, I decide to proceed with this model to predict the testing data. The out of sample error is 0.0022.
+
+## Predicting on testing data
+
+To predict on the testing data, we need to load the testing set first. We also need to preprocess and clean the data, as we did for the training set.
+```{r, cache = TRUE}
+# Load the testing set
+testing <- read.csv('pml-testing.csv', na.strings = c("NA", "#DIV/0!", ""))
+# Removing non-meaningful variables
+testing <- testing[, -(1 : 5)]
+# Removing variables with nearly zero variance
+nzv <- nearZeroVar(testing)
+testing <- testing[, -nzv]
+# Removing variables which have lots of missing values
+removeNA <- sapply(testing, function(x) mean(is.na(x))) > 0.9
+testing <- testing[, removeNA == F]
+dim(testing)
+```
+
+After the testing set is cleaned, I apply the random forests model to predict the result.
+```{r, cache = TRUE}
+# Predict on the testing set
+predict_testing <- predict(model_forests, newdata = testing)
+```
+
+Using the code provided by the course website, the predicting results are saved into a bunch of .txt files.
+```{r, cache = TRUE}
+# Output the predicting results
+pml_write_files = function(x) {
+  n = length(x)
+  for(i in 1 : n){
+    filename = paste0("problem_id_", i, ".txt")
+    write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, col.names = FALSE)
+  }
+}
+```
+```{r, cache = TRUE}
+# Call the function to output
+pml_write_files(predict_testing)
+```
